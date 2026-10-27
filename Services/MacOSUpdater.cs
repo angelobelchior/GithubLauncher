@@ -24,10 +24,15 @@ public static class MacOSUpdater
             throw new InvalidOperationException($"macOS update extraction failed: {error}");
     }
 
-    public static async Task StartAsync(string updateDirectory, string version)
+    public static Task StartAsync(string updateDirectory, string version)
     {
         string bundle = LauncherPaths.AppBundle
             ?? throw new InvalidOperationException("Run the launcher from its .app bundle to update it.");
+        return StartAsync(updateDirectory, version, bundle, LauncherPaths.DataDirectory);
+    }
+
+    public static async Task StartAsync(string updateDirectory, string version, string bundle, string dataDirectory)
+    {
         string source = Path.Combine(updateDirectory, "GithubLauncher.app");
         string executable = Path.Combine(source, "Contents", "MacOS", "GithubLauncher");
         if (!File.Exists(executable))
@@ -53,7 +58,7 @@ public static class MacOSUpdater
 
         string scriptPath = Path.Combine(Path.GetTempPath(), $"GithubLauncher-update-{Guid.NewGuid():N}.sh");
         string backup = bundle + $".backup-{Guid.NewGuid():N}";
-        string statePath = Path.Combine(LauncherPaths.DataDirectory, "update_check.json");
+        string statePath = Path.Combine(dataDirectory, "update_check.json");
         string state = JsonSerializer.Serialize(new
         {
             CurrentVersion = version,
@@ -74,18 +79,29 @@ public static class MacOSUpdater
                 count=$((count + 1))
                 sleep 1
             done
+            rollback() (
+                result=$?
+                if [ "$result" -ne 0 ] && [ -d {Quote(backup)} ]; then
+                    rm -rf {Quote(bundle)}
+                    mv {Quote(backup)} {Quote(bundle)} || exit 1
+                    printf '%s\n' 'Update failed. Original app restored.' >&2
+                fi
+                exit "$result"
+            )
+            trap rollback EXIT
             mv {Quote(bundle)} {Quote(backup)}
             if ! /usr/bin/ditto {Quote(source)} {Quote(bundle)}; then
-                printf '%s\n' 'Update failed. Original app preserved at:' {Quote(backup)} >&2
+                printf '%s\n' 'Update failed.' >&2
                 exit 1
             fi
             if ! /usr/bin/codesign --verify --deep --strict {Quote(bundle)}; then
-                printf '%s\n' 'Installed signature invalid. Original app preserved at:' {Quote(backup)} >&2
+                printf '%s\n' 'Installed signature invalid.' >&2
                 exit 1
             fi
             printf '%s\n' {Quote(state)} > {Quote(statePath)}
             /usr/bin/open {Quote(bundle)}
-            printf '%s\n' 'Update complete. Previous app preserved at:' {Quote(backup)}
+            rm -rf {Quote(backup)}
+            printf '%s\n' 'Update complete.'
             """;
         await File.WriteAllTextAsync(scriptPath, script);
         var startInfo = new ProcessStartInfo("/bin/bash") { UseShellExecute = false };

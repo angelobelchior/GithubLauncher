@@ -5,19 +5,20 @@ namespace GithubLauncher.Services
 {
     public static class LauncherPaths
     {
-        public static string DataDirectory
-        {
-            get
-            {
-                if (!OperatingSystem.IsMacOS())
-                    return AppContext.BaseDirectory;
+        public static string DataDirectory { get; } = ResolveDataDirectory();
 
-                string directory = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    GithubLauncherProfile.Instance.ApplicationId);
-                Directory.CreateDirectory(directory);
-                return directory;
-            }
+        private static string ResolveDataDirectory()
+        {
+            if (!OperatingSystem.IsMacOS())
+                return AppContext.BaseDirectory;
+
+            string baseDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (string.IsNullOrEmpty(baseDirectory))
+                return AppContext.BaseDirectory;
+
+            string directory = Path.Combine(baseDirectory, GithubLauncherProfile.Instance.ApplicationId);
+            Directory.CreateDirectory(directory);
+            return directory;
         }
 
         public static string? AppBundle
